@@ -106,7 +106,7 @@ async function sendFCMNotification(accessToken: string, productData: any) {
     message: {
       topic: "estoque_ruptura",
       notification: {
-        title: "🚨 RUPTURA DE ESTOQUE!",
+        title: "RUPTURA DE ESTOQUE!",
         body: `O produto "${productData.nome_produto}" está com estoque ZERADO!`,
       },
       data: {
