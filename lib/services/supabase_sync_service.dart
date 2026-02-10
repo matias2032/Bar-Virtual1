@@ -651,6 +651,7 @@ Future<void> _syncPedidos() async {
       final pedidoData = {
         'id_pedido': idPedido,
         'reference': pedidoMap['reference'],
+         'nome_pedido': pedidoMap['nome_pedido'],
         'id_usuario': pedidoMap['id_usuario'],
         'telefone': pedidoMap['telefone'],
         'email': pedidoMap['email'],
@@ -3764,7 +3765,7 @@ Future<void> _syncPedidosEspecificos(List<int> ids) async {
       final pedidoData = {
         'id_pedido': idPedido,
         'reference': pedidoMap['reference'],
-        'nome_pedido': pedidoMap['nome_pedido'], // 🔥 ADICIONAR
+         'nome_pedido': pedidoMap['nome_pedido'],
         'id_usuario': pedidoMap['id_usuario'],
         'telefone': pedidoMap['telefone'],
         'email': pedidoMap['email'],
