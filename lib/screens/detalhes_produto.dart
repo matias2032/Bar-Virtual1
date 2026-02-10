@@ -156,14 +156,14 @@ Future<void> _adicionarAoPedido() async {
       
       // 🔥 BLOQUEAR se não inserir nome
       if (nomePedido == null || nomePedido.isEmpty) {
-        if (mounted) {
-          _mostrarPopup(
-            'Nome Obrigatório',
-            'Você precisa dar um nome ao pedido para continuar.',
-            Icons.warning,
-            Colors.orange,
-          );
-        }
+        // if (mounted) {
+        //   _mostrarPopup(
+        //     'Nome Obrigatório',
+        //     'Você precisa dar um nome ao pedido para continuar.',
+        //     Icons.warning,
+        //     Colors.red,
+        //   );
+        // }
         return; // 🔥 IMPEDE CRIAÇÃO
       }
 
@@ -234,79 +234,156 @@ Future<void> _adicionarAoPedido() async {
   }
 }
 
-// 🔥 ADICIONAR ESTE MÉTODO NOVO
 Future<String?> _solicitarNomePedido() async {
   final controller = TextEditingController();
-  
+  bool mostrarErro = false; // Controle local do estado de erro
+
   return await showDialog<String>(
     context: context,
-    barrierDismissible: false, // 🔥 IMPEDE FECHAR SEM RESPONDER
-    builder: (ctx) => AlertDialog(
-      title: Row(
-        children: [
-          Icon(Icons.edit, color: Colors.teal),
-          const SizedBox(width: 12),
-          const Text('Nome do Pedido'),
-        ],
-      ),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Dê um nome para identificar este pedido:',
-            style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: controller,
-            autofocus: true,
-            maxLength: 50,
-            decoration: const InputDecoration(
-              hintText: 'Ex: Mesa 5, Entrega João, etc.',
-              border: OutlineInputBorder(),
-              prefixIcon: Icon(Icons.label),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: Colors.orange.shade50,
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Row(
-              children: [
-                Icon(Icons.info_outline, size: 16, color: Colors.orange.shade700),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    'O nome é obrigatório para continuar.',
-                    style: TextStyle(fontSize: 12, color: Colors.orange.shade700),
+    barrierDismissible: false,
+    builder: (ctx) {
+      return StatefulBuilder( // Permite atualizar o erro dentro do dialog
+        builder: (context, setState) {
+          // Cálculo para o teclado não sobrepor o conteúdo
+          double alturaDisponivel = MediaQuery.of(ctx).size.height - MediaQuery.of(ctx).viewInsets.bottom - 40;
+
+          return Scaffold(
+            backgroundColor: Colors.transparent,
+            body: Align(
+              alignment: Alignment.topCenter,
+              child: Padding(
+                padding: const EdgeInsets.only(top: 20),
+                child: Material(
+                  type: MaterialType.transparency,
+                  child: Container(
+                    width: MediaQuery.of(ctx).size.width * 0.9,
+                    constraints: BoxConstraints(
+                      maxWidth: 600,
+                      maxHeight: alturaDisponivel > 200 ? alturaDisponivel : 200,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 10)],
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // HEADER
+                        Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: Colors.teal.shade50,
+                            borderRadius: const BorderRadius.only(
+                              topLeft: Radius.circular(16),
+                              topRight: Radius.circular(16),
+                            ),
+                          ),
+                          child: Row(
+                            children: const [
+                              Icon(Icons.edit, color: Colors.teal, size: 24),
+                              SizedBox(width: 12),
+                              Text('Nome do Pedido', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                            ],
+                          ),
+                        ),
+
+                        // CONTEÚDO COM SCROLL
+                        Flexible(
+                          child: SingleChildScrollView(
+                            padding: const EdgeInsets.all(20),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'Dê um nome para identificar este pedido:',
+                                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                                ),
+                                const SizedBox(height: 12),
+                                
+                                // TEXTFIELD COM CORES AJUSTADAS
+                                TextField(
+                                  controller: controller,
+                                  autofocus: true,
+                                  maxLength: 50,
+                                  onChanged: (_) {
+                                    if (mostrarErro) setState(() => mostrarErro = false);
+                                  },
+                                  decoration: InputDecoration(
+                                    hintText: 'Ex: Mesa 5, Entrega João, etc.',
+                                    hintStyle: const TextStyle(color: Colors.grey), // Hint cinza
+                                    counterText: '',
+                                    filled: true,
+                                    fillColor: Colors.grey.shade50,
+                                    prefixIcon: const Icon(Icons.label, color: Colors.teal),
+                                    // Borda padrão em Teal
+                                    enabledBorder: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                      borderSide: const BorderSide(color: Colors.teal, width: 1.5),
+                                    ),
+                                    // Borda em foco em Teal
+                                    focusedBorder: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                      borderSide: const BorderSide(color: Colors.teal, width: 2.5),
+                                    ),
+                                  ),
+                                ),
+
+                                // MENSAGEM DE ERRO CONDICIONAL
+                                if (mostrarErro)
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 8.0),
+                                    child: Row(
+                                      children: const [
+                                        Icon(Icons.error_outline, size: 16, color: Colors.red),
+                                        SizedBox(width: 6),
+                                        Text(
+                                          'O nome é obrigatório para continuar.',
+                                          style: TextStyle(color: Colors.red, fontSize: 12, fontWeight: FontWeight.w500),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+
+                                const SizedBox(height: 24),
+
+                                // BOTÃO DE CONFIRMAÇÃO
+                                SizedBox(
+                                  width: double.infinity,
+                                  height: 48,
+                                  child: ElevatedButton(
+                                    onPressed: () {
+                                      final nome = controller.text.trim();
+                                      if (nome.isEmpty) {
+                                        setState(() => mostrarErro = true); // Ativa o erro
+                                      } else {
+                                        Navigator.pop(ctx, nome);
+                                      }
+                                    },
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: Colors.teal,
+                                      foregroundColor: Colors.white,
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                    ),
+                                    child: const Text('Confirmar', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-              ],
+              ),
             ),
-          ),
-        ],
-      ),
-      actions: [
-        ElevatedButton(
-          onPressed: () {
-            final nome = controller.text.trim();
-            Navigator.pop(ctx, nome.isEmpty ? null : nome);
-          },
-          style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.teal,
-            foregroundColor: Colors.white,
-          ),
-          child: const Text('Confirmar'),
-        ),
-      ],
-    ),
+          );
+        },
+      );
+    },
   );
 }
-
 
   void _mostrarPopup(String titulo, String mensagem, IconData icone, Color cor, {VoidCallback? aoFechar}) {
     showDialog(
