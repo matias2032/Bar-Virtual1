@@ -443,7 +443,7 @@ Future<void> _removerItem(Pedido pedido, ItemPedido item) async {
     );
   }
 
-  Widget _buildPedidoCard(Pedido pedido) {
+Widget _buildPedidoCard(Pedido pedido) {
   final totalItens = pedido.itens?.length ?? 0;
   final isAtivo = _pedidoAtivoService.pedidoAtivoId == pedido.id;
   final isExpandido = _pedidoExpandidoId == pedido.id;
@@ -459,47 +459,89 @@ Future<void> _removerItem(Pedido pedido, ItemPedido item) async {
     ),
     child: Column(
       children: [
-        // CABEÇALHO DO PEDIDO (mantido igual)
         Padding(
           padding: const EdgeInsets.all(16),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // 🔥 CABEÇALHO COM NOME PERSONALIZADO
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Row(
-                    children: [
-                      Text(
-                        'Pedido #${pedido.id}',
-                        style: const TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      if (isAtivo) ...[
-                        const SizedBox(width: 8),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // 🔥 NOME DO PEDIDO (se existir)
+                        if (pedido.nomePedido != null && pedido.nomePedido!.isNotEmpty) ...[
+                          Row(
+                            children: [
+                              Icon(
+                                Icons.label,
+                                size: 18,
+                                color: Colors.teal.shade700,
+                              ),
+                              const SizedBox(width: 6),
+                              Expanded(
+                                child: Text(
+                                  pedido.nomePedido!,
+                                  style: TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.teal.shade700,
+                                  ),
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ],
                           ),
-                          decoration: BoxDecoration(
-                            color: Colors.teal,
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: const Text(
-                            'ATIVO',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 10,
-                              fontWeight: FontWeight.bold,
+                          const SizedBox(height: 4),
+                        ],
+                        
+                        // CÓDIGO DO PEDIDO
+                        Row(
+                          children: [
+                            Text(
+                              'Pedido #${pedido.id}',
+                              style: TextStyle(
+                                fontSize: pedido.nomePedido != null ? 14 : 20,
+                                fontWeight: pedido.nomePedido != null 
+                                    ? FontWeight.normal 
+                                    : FontWeight.bold,
+                                color: pedido.nomePedido != null 
+                                    ? Colors.grey.shade600 
+                                    : Colors.black,
+                              ),
                             ),
-                          ),
+                            if (isAtivo) ...[
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 4,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.teal,
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: const Text(
+                                  'ATIVO',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ],
                         ),
                       ],
-                    ],
+                    ),
                   ),
+                  
+                  // STATUS DO PEDIDO
                   Container(
                     padding: const EdgeInsets.symmetric(
                       horizontal: 12,
@@ -520,8 +562,10 @@ Future<void> _removerItem(Pedido pedido, ItemPedido item) async {
                   ),
                 ],
               ),
+              
               const SizedBox(height: 12),
 
+              // DATA E HORA
               Row(
                 children: [
                   const Icon(Icons.calendar_today, size: 16),
@@ -537,6 +581,7 @@ Future<void> _removerItem(Pedido pedido, ItemPedido item) async {
               ),
               const SizedBox(height: 8),
 
+              // QUANTIDADE DE ITENS
               Row(
                 children: [
                   const Icon(Icons.shopping_bag, size: 16),
@@ -549,6 +594,7 @@ Future<void> _removerItem(Pedido pedido, ItemPedido item) async {
               ),
               const SizedBox(height: 16),
 
+              // TOTAL
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
@@ -578,7 +624,7 @@ Future<void> _removerItem(Pedido pedido, ItemPedido item) async {
               ),
               const SizedBox(height: 16),
 
-              // BOTÕES DE AÇÃO
+              // BOTÕES DE AÇÃO (mantidos iguais)
               Row(
                 children: [
                   Expanded(
@@ -646,10 +692,10 @@ Future<void> _removerItem(Pedido pedido, ItemPedido item) async {
           ),
         ),
 
-        // 🔥 CORREÇÃO CRÍTICA: Renderizar itens com FutureBuilder
+        // LISTA DE ITENS (mantida igual)
         if (isExpandido)
           FutureBuilder<Pedido?>(
-            future: _syncService.readPedidoComDetalhes(pedido.id!), // 🔥 RECARREGAR DADOS
+            future: _syncService.readPedidoComDetalhes(pedido.id!),
             builder: (context, snapshot) {
               if (snapshot.connectionState == ConnectionState.waiting) {
                 return Container(
@@ -704,6 +750,7 @@ Future<void> _removerItem(Pedido pedido, ItemPedido item) async {
     ),
   );
 }
+
 
  Widget _buildItemPedido(Pedido pedido, ItemPedido item) {
   final produto = item.produto;

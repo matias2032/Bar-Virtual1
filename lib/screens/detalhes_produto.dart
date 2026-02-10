@@ -121,9 +121,14 @@ Future<void> _adicionarAoPedido() async {
     
     final idUsuario = usuario.id!;
     int pedidoId;
+    String? nomePedidoAtivo; // 🔥 NOVO
     
     if (_pedidoAtivoService.temPedidoAtivo) {
       pedidoId = _pedidoAtivoService.pedidoAtivoId!;
+      
+      // 🔥 BUSCAR NOME DO PEDIDO ATIVO
+      final pedidoCompleto = await _syncService.readPedidoComDetalhes(pedidoId);
+      nomePedidoAtivo = pedidoCompleto?.nomePedido;
       
       await _syncService.adicionarItemAoPedido(
         pedidoId,
@@ -131,18 +136,37 @@ Future<void> _adicionarAoPedido() async {
         _quantidade,
       );
       
-   
-      
       if (mounted) {
+        // 🔥 MOSTRAR NOME SE EXISTIR
+        final identificador = nomePedidoAtivo != null && nomePedidoAtivo.isNotEmpty
+            ? '"$nomePedidoAtivo" (#$pedidoId)'
+            : '#$pedidoId';
+        
         _mostrarPopup(
           'Sucesso!',
-          'Produto adicionado ao Pedido #$pedidoId.',
+          'Produto adicionado ao Pedido $identificador.',
           Icons.check_circle,
           Colors.green,
           aoFechar: () => Navigator.of(context).pop(),
         );
       }
     } else {
+      // 🔥 SOLICITAR NOME DO PEDIDO (não pode prosseguir sem)
+      String? nomePedido = await _solicitarNomePedido();
+      
+      // 🔥 BLOQUEAR se não inserir nome
+      if (nomePedido == null || nomePedido.isEmpty) {
+        if (mounted) {
+          _mostrarPopup(
+            'Nome Obrigatório',
+            'Você precisa dar um nome ao pedido para continuar.',
+            Icons.warning,
+            Colors.orange,
+          );
+        }
+        return; // 🔥 IMPEDE CRIAÇÃO
+      }
+
       final item = ItemPedido(
         idPedido: 0,
         idProduto: _produto!.id!,
@@ -157,21 +181,19 @@ Future<void> _adicionarAoPedido() async {
         dataPedido: DateTime.now().toIso8601String(),
         total: _calcularTotal(),
         statusPedido: 'por finalizar',
+        nomePedido: nomePedido,
       );
-      
-      pedidoId = await _syncService.createPedido(pedido, [item]);
 
-      
+      pedidoId = await _syncService.createPedido(pedido, [item]);
       _pedidoAtivoService.setPedidoAtivo(pedidoId);
       
       if (mounted) {
-        // 🔥 NOVO: Verificar se foi criado offline
         final modoOffline = !_syncService.isOnline;
         final icone = modoOffline ? Icons.cloud_off : Icons.check_circle;
         final cor = modoOffline ? Colors.orange : Colors.green;
         final mensagem = modoOffline
-            ? 'Pedido criado localmente (#$pedidoId).\nSerá sincronizado quando houver conexão estável.'
-            : 'Novo pedido criado (#$pedidoId) e definido como ativo.';
+            ? 'Pedido "$nomePedido" criado localmente (#$pedidoId).\nSerá sincronizado quando houver conexão estável.'
+            : 'Novo pedido "$nomePedido" criado (#$pedidoId) e definido como ativo.';
         
         _mostrarPopup(
           'Sucesso!',
@@ -183,7 +205,6 @@ Future<void> _adicionarAoPedido() async {
       }
     }
   } on TimeoutException {
-    // 🔥 NOVO: Tratamento específico para timeout
     if (mounted) {
       _mostrarPopup(
         'Conexão Instável',
@@ -212,6 +233,80 @@ Future<void> _adicionarAoPedido() async {
     }
   }
 }
+
+// 🔥 ADICIONAR ESTE MÉTODO NOVO
+Future<String?> _solicitarNomePedido() async {
+  final controller = TextEditingController();
+  
+  return await showDialog<String>(
+    context: context,
+    barrierDismissible: false, // 🔥 IMPEDE FECHAR SEM RESPONDER
+    builder: (ctx) => AlertDialog(
+      title: Row(
+        children: [
+          Icon(Icons.edit, color: Colors.teal),
+          const SizedBox(width: 12),
+          const Text('Nome do Pedido'),
+        ],
+      ),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Dê um nome para identificar este pedido:',
+            style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: controller,
+            autofocus: true,
+            maxLength: 50,
+            decoration: const InputDecoration(
+              hintText: 'Ex: Mesa 5, Entrega João, etc.',
+              border: OutlineInputBorder(),
+              prefixIcon: Icon(Icons.label),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: Colors.orange.shade50,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.info_outline, size: 16, color: Colors.orange.shade700),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'O nome é obrigatório para continuar.',
+                    style: TextStyle(fontSize: 12, color: Colors.orange.shade700),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        ElevatedButton(
+          onPressed: () {
+            final nome = controller.text.trim();
+            Navigator.pop(ctx, nome.isEmpty ? null : nome);
+          },
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.teal,
+            foregroundColor: Colors.white,
+          ),
+          child: const Text('Confirmar'),
+        ),
+      ],
+    ),
+  );
+}
+
 
   void _mostrarPopup(String titulo, String mensagem, IconData icone, Color cor, {VoidCallback? aoFechar}) {
     showDialog(
@@ -287,29 +382,38 @@ Future<void> _adicionarAoPedido() async {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // Info Pedido Ativo (se houver)
-            if (temPedidoAtivo)
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(12),
-                color: Colors.teal.shade50,
-                child: Row(
-                  children: [
-                    const Icon(Icons.info_outline, color: Colors.teal),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        'Será adicionado ao Pedido #$pedidoAtivoId (ativo)',
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: Colors.teal,
-                        ),
-                      ),
-                    ),
-                  ],
+          // Info Pedido Ativo (se houver)
+if (temPedidoAtivo)
+  FutureBuilder<Pedido?>(
+    future: _syncService.readPedidoComDetalhes(pedidoAtivoId!),
+    builder: (context, snapshot) {
+      final nomePedido = snapshot.data?.nomePedido;
+      final identificador = nomePedido != null && nomePedido.isNotEmpty
+          ? '"$nomePedido" (#$pedidoAtivoId)'
+          : '#$pedidoAtivoId';
+      
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(12),
+        color: Colors.teal.shade50,
+        child: Row(
+          children: [
+            const Icon(Icons.info_outline, color: Colors.teal),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Será adicionado ao Pedido $identificador (ativo)',
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: Colors.teal,
                 ),
               ),
-            
-            // Imagem Grande
+            ),
+          ],
+        ),
+      );
+    },
+  ),  // Imagem Grande
    Hero(
   tag: 'produto_${_produto!.id}',
   child: CachedProdutoImage(
@@ -535,35 +639,48 @@ Future<void> _adicionarAoPedido() async {
                     const SizedBox(height: 24),
                     
                     // Botão Adicionar ao Pedido
-                    SizedBox(
-                      width: double.infinity,
-                      height: 56,
-                      child: ElevatedButton.icon(
-                        onPressed: _isAdicionando ? null : _adicionarAoPedido,
-                        icon: _isAdicionando
-                            ? const SizedBox(
-                                width: 20,
-                                height: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.white,
-                                ),
-                              )
-                            : Icon(temPedidoAtivo ? Icons.add : Icons.add_shopping_cart),
-                        label: Text(
-                          _isAdicionando 
-                              ? 'Adicionando...' 
-                              : temPedidoAtivo 
-                                  ? 'Adicionar ao Pedido #$pedidoAtivoId'
-                                  : 'Criar Novo Pedido',
-                          style: const TextStyle(fontSize: 18),
-                        ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.teal,
-                          foregroundColor: Colors.white,
-                        ),
-                      ),
-                    ),
+             // Botão Adicionar ao Pedido
+SizedBox(
+  width: double.infinity,
+  height: 56,
+  child: FutureBuilder<Pedido?>(
+    future: temPedidoAtivo 
+        ? _syncService.readPedidoComDetalhes(pedidoAtivoId!) 
+        : Future.value(null),
+    builder: (context, snapshot) {
+      final nomePedido = snapshot.data?.nomePedido;
+      final labelBotao = _isAdicionando 
+          ? 'Adicionando...' 
+          : temPedidoAtivo 
+              ? (nomePedido != null && nomePedido.isNotEmpty
+                  ? 'Adicionar a "$nomePedido"'
+                  : 'Adicionar ao Pedido #$pedidoAtivoId')
+              : 'Criar Novo Pedido';
+      
+      return ElevatedButton.icon(
+        onPressed: _isAdicionando ? null : _adicionarAoPedido,
+        icon: _isAdicionando
+            ? const SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: Colors.white,
+                ),
+              )
+            : Icon(temPedidoAtivo ? Icons.add : Icons.add_shopping_cart),
+        label: Text(
+          labelBotao,
+          style: const TextStyle(fontSize: 18),
+        ),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: Colors.teal,
+          foregroundColor: Colors.white,
+        ),
+      );
+    },
+  ),
+),
                   ],
                 ],
               ),

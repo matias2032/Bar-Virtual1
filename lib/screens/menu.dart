@@ -9,6 +9,7 @@ import '../services/base_de_dados.dart';
 import '../services/pedido_ativo_service.dart';
 import '../services/pedido_contador_service.dart'; // 🔥 NOVO IMPORT
 import '../models/produto_imagem.dart';
+import '../models/pedido.dart'; // 🔥 ADICIONAR ESTA LINHA
 import '../widgets/app_sidebar.dart';
 import '../widgets/theme_toggle_widget.dart';
 import '../services/supabase_sync_service.dart';
@@ -543,61 +544,70 @@ Widget build(BuildContext context) {
         drawer: const AppSidebar(currentRoute: '/menu'),
         body: Column(
           children: [
-            if (temPedidoAtivo)
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                decoration: BoxDecoration(
-                  color: Colors.teal.shade50,
-                  border: Border(
-                    bottom: BorderSide(color: Colors.teal.shade200, width: 2),
-                  ),
-                ),
-                child: Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: const BoxDecoration(
-                        color: Colors.teal,
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(
-                        Icons.shopping_bag,
-                        color: Colors.white,
-                        size: 20,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Pedido Ativo',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.teal,
-                            ),
-                          ),
-                          Text(
-                            'Pedido #$pedidoAtivoId - Produtos serão adicionados aqui',
-                            style: TextStyle(
-                              fontSize: 14,
-                              color: Colors.grey.shade700,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.close, color: Colors.teal),
-                      tooltip: 'Novo Pedido',
-                      onPressed: _iniciarNovoPedido,
-                    ),
-                  ],
-                ),
+    if (temPedidoAtivo)
+  FutureBuilder<Pedido?>(
+    future: _syncService.readPedidoComDetalhes(pedidoAtivoId!),
+    builder: (context, snapshot) {
+      final nomePedido = snapshot.data?.nomePedido;
+      
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: Colors.teal.shade50,
+          border: Border(
+            bottom: BorderSide(color: Colors.teal.shade200, width: 2),
+          ),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: const BoxDecoration(
+                color: Colors.teal,
+                shape: BoxShape.circle,
               ),
+              child: const Icon(
+                Icons.shopping_bag,
+                color: Colors.white,
+                size: 20,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Pedido Ativo',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.teal,
+                    ),
+                  ),
+                  Text(
+                    nomePedido != null && nomePedido.isNotEmpty
+                        ? '"$nomePedido" (#$pedidoAtivoId) - Produtos serão adicionados aqui'
+                        : 'Pedido #$pedidoAtivoId - Produtos serão adicionados aqui',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.grey.shade700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            IconButton(
+              icon: const Icon(Icons.close, color: Colors.teal),
+              tooltip: 'Novo Pedido',
+              onPressed: _iniciarNovoPedido,
+            ),
+          ],
+        ),
+      );
+    },
+  ),
             AnimatedSize(
               duration: const Duration(milliseconds: 300),
               curve: Curves.easeInOut,

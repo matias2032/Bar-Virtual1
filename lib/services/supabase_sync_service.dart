@@ -1322,7 +1322,7 @@ Future<int> createPedido(Pedido pedido, List<ItemPedido> itens) async {
     return await _createPedidoOffline(pedido, itens);
   }
   
-  // 🔥 NOVO: Gerar reference ANTES (para verificação posterior)
+  // 🔥 Gerar reference ANTES (para verificação posterior)
   final reference = 'PED-${DateTime.now().millisecondsSinceEpoch}-${_deviceId?.substring(0, 8) ?? ""}';
   
   // Teste de conexão
@@ -1335,10 +1335,10 @@ Future<int> createPedido(Pedido pedido, List<ItemPedido> itens) async {
     
   } on TimeoutException {
     print('⚠️ Conexão instável - criando offline');
-    return await _createPedidoOffline(pedido, itens, reference); // 🔥 PASSA REFERENCE
+    return await _createPedidoOffline(pedido, itens, reference);
   } catch (e) {
     print('⚠️ Erro no teste de conexão: $e - criando offline');
-    return await _createPedidoOffline(pedido, itens, reference); // 🔥 PASSA REFERENCE
+    return await _createPedidoOffline(pedido, itens, reference);
   }
   
   // ONLINE: Usar RPC
@@ -1351,6 +1351,9 @@ Future<int> createPedido(Pedido pedido, List<ItemPedido> itens) async {
     }).toList();
     
     print('🔄 Criando pedido no Supabase via RPC (ref: $reference)...');
+    if (pedido.nomePedido != null) {
+      print('📝 Nome do pedido: "${pedido.nomePedido}"');
+    }
     
     final response = await _supabase.rpc('criar_pedido_completo', params: {
       'p_reference': reference,
@@ -1363,6 +1366,7 @@ Future<int> createPedido(Pedido pedido, List<ItemPedido> itens) async {
       'p_bairro': pedido.bairro,
       'p_ponto_referencia': pedido.pontoReferencia,
       'p_endereco_json': pedido.enderecoJson,
+      'p_nome_pedido': pedido.nomePedido, // 🔥 ADICIONAR ESTE PARÂMETRO
     }).timeout(
       const Duration(seconds: 10),
       onTimeout: () => throw TimeoutException('Timeout ao criar pedido'),
@@ -1383,13 +1387,12 @@ Future<int> createPedido(Pedido pedido, List<ItemPedido> itens) async {
     print('   Itens: $itensCriados');
     print('   Estoque: ${estoqueDebitado ? "Debitado ✓" : "Erro ✗"}');
     
-    // 🔥 NOVO: Criar localmente com try-catch isolado
+    // 🔥 Criar localmente com try-catch isolado
     try {
       await _criarPedidoLocalAposRPC(pedido, itens, idSupabase, reference, total);
       print('✅ Pedido sincronizado localmente');
     } catch (e) {
       print('⚠️ Erro ao criar localmente (pedido existe no Supabase): $e');
-      // 🔥 NOVO: Adicionar à fila de sincronização para tentar depois
       _addToOfflineQueue(OfflineOperation(
         type: 'sync_pedido_existente',
         data: {'id_pedido': idSupabase, 'reference': reference},
@@ -1402,7 +1405,7 @@ Future<int> createPedido(Pedido pedido, List<ItemPedido> itens) async {
   } on TimeoutException catch (e) {
     print('⏱️ Timeout: $e');
     
-    // 🔥 NOVO: Verificar se pedido foi criado apesar do timeout
+    // Verificar se pedido foi criado apesar do timeout
     final pedidoExistente = await _verificarPedidoRemoto(reference);
     
     if (pedidoExistente != null) {
@@ -1410,7 +1413,6 @@ Future<int> createPedido(Pedido pedido, List<ItemPedido> itens) async {
       final idSupabase = pedidoExistente['id_pedido'] as int;
       final total = (pedidoExistente['total'] as num).toDouble();
       
-      // Criar localmente
       try {
         await _criarPedidoLocalAposRPC(pedido, itens, idSupabase, reference, total);
       } catch (e) {
@@ -1432,14 +1434,14 @@ Future<int> createPedido(Pedido pedido, List<ItemPedido> itens) async {
   } catch (e) {
     print('❌ Erro ao criar pedido: $e');
     
-    // 🔥 NOVO: Verificar se é erro de rede ou de validação
+    // Verificar se é erro de validação
     if (e.toString().contains('Estoque insuficiente') || 
         e.toString().contains('não encontrado') ||
         e.toString().contains('obrigatório')) {
-      rethrow; // Propagar erros de validação
+      rethrow;
     }
     
-    // 🔥 NOVO: Para outros erros, verificar se pedido foi criado
+    // Para outros erros, verificar se pedido foi criado
     final pedidoExistente = await _verificarPedidoRemoto(reference);
     
     if (pedidoExistente != null) {
@@ -1464,6 +1466,7 @@ Future<int> createPedido(Pedido pedido, List<ItemPedido> itens) async {
     return await _createPedidoOffline(pedido, itens, reference);
   }
 }
+
 
 // 🔥 NOVO MÉTODO: Verificar se pedido existe no Supabase
 Future<Map<String, dynamic>?> _verificarPedidoRemoto(String reference) async {
@@ -1508,6 +1511,7 @@ Future<void> _criarPedidoLocalAposRPC(
       total: total,
       statusPedido: 'por finalizar',
       dataPedido: DateTime.now().toIso8601String(),
+      // nomePedido já está em pedido.nomePedido, não precisa passar aqui
     );
     
     await txn.insert(
@@ -1524,7 +1528,6 @@ Future<void> _criarPedidoLocalAposRPC(
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
       
-      // 🔥 IMPORTANTE: Debitar estoque localmente
       await txn.rawUpdate(
         'UPDATE produto SET quantidade_estoque = quantidade_estoque - ? WHERE id_produto = ?',
         [item.quantidade, item.idProduto],
@@ -1533,11 +1536,12 @@ Future<void> _criarPedidoLocalAposRPC(
   });
 }
 
+
 // 🔥 MODIFICADO: Aceitar reference como parâmetro
 Future<int> _createPedidoOffline(
   Pedido pedido, 
   List<ItemPedido> itens,
-  [String? reference] // 🔥 NOVO: parâmetro opcional
+  [String? reference]
 ) async {
   print('📵 Modo offline - criando pedido localmente');
   
@@ -1545,11 +1549,10 @@ Future<int> _createPedidoOffline(
     final db = await _localDb.database;
     
     return await db.transaction((txn) async {
-      // 🔥 USAR reference passado ou gerar novo
       final refFinal = reference ?? 'OFFLINE-${DateTime.now().millisecondsSinceEpoch}';
       
       final pedidoMap = pedido.copyWith(
-        reference: refFinal, // 🔥 USA REFERENCE CONSISTENTE
+        reference: refFinal,
         statusPedido: 'por finalizar',
       ).toMap();
       
@@ -1581,13 +1584,13 @@ Future<int> _createPedidoOffline(
         whereArgs: [idLocal],
       );
       
-      // ✅ ADICIONAR À FILA OFFLINE
+      // 🔥 ADICIONAR À FILA OFFLINE COM NOME_PEDIDO
       _addToOfflineQueue(OfflineOperation(
         type: 'create_pedido_completo',
         data: {
           'id_pedido_local': idLocal,
-          'reference': refFinal, // 🔥 INCLUIR REFERENCE
-          'pedido': pedidoMap,
+          'reference': refFinal,
+          'pedido': pedidoMap, // 🔥 JÁ CONTÉM nome_pedido
           'itens': itens.map((i) => {
             'id_produto': i.idProduto,
             'quantidade': i.quantidade,
@@ -1599,6 +1602,7 @@ Future<int> _createPedidoOffline(
       ));
       
       print('✅ Pedido #$idLocal criado offline (ref: $refFinal)');
+      print('   Nome: ${pedido.nomePedido ?? "(sem nome)"}'); // 🔥 LOG DIAGNÓSTICO
       
       return idLocal;
     });
@@ -1608,6 +1612,7 @@ Future<int> _createPedidoOffline(
     rethrow;
   }
 }
+
 
 // ==========================================
 // ADICIONAR ITEM A PEDIDO EXISTENTE
@@ -2863,11 +2868,11 @@ case 'create_pedido_completo':
     final pedidoData = operation.data['pedido'] as Map<String, dynamic>;
     final itensData = operation.data['itens'] as List<dynamic>;
     final idPedidoLocal = operation.data['id_pedido_local'] as int;
-    final reference = operation.data['reference'] as String; // 🔥 NOVO: obter reference
+    final reference = operation.data['reference'] as String;
     
     print('🔄 Sincronizando pedido offline (ref: $reference)...');
     
-    // 🔥 NOVO: Verificar se pedido já existe no Supabase
+    // Verificar se pedido já existe no Supabase
     final pedidoExistente = await _supabase
         .from('pedidos')
         .select('id_pedido, total')
@@ -2875,7 +2880,6 @@ case 'create_pedido_completo':
         .maybeSingle();
     
     if (pedidoExistente != null) {
-      // 🔥 PEDIDO JÁ EXISTE: Apenas atualizar IDs locais
       final idSupabase = pedidoExistente['id_pedido'] as int;
       
       print('✅ Pedido já existe no Supabase (ID: $idSupabase)');
@@ -2896,10 +2900,10 @@ case 'create_pedido_completo':
       );
       
       print('✅ IDs locais atualizados para ID Supabase $idSupabase');
-      return; // 🔥 SAIR SEM CRIAR NOVAMENTE
+      return;
     }
     
-    // 🔥 PEDIDO NÃO EXISTE: Usar RPC (mais seguro que INSERT manual)
+    // 🔥 PEDIDO NÃO EXISTE: Usar RPC COM NOME_PEDIDO
     final itensJson = itensData.map((item) => {
       'id_produto': item['id_produto'],
       'quantidade': item['quantidade'],
@@ -2918,6 +2922,7 @@ case 'create_pedido_completo':
       'p_bairro': pedidoData['bairro'],
       'p_ponto_referencia': pedidoData['ponto_referencia'],
       'p_endereco_json': pedidoData['endereco_json'],
+      'p_nome_pedido': pedidoData['nome_pedido'], // 🔥 ADICIONAR AQUI
     });
     
     if (response.isEmpty) {
@@ -2946,9 +2951,10 @@ case 'create_pedido_completo':
     
   } catch (e) {
     print('❌ Erro ao sincronizar pedido offline: $e');
-    rethrow; // Mantém na fila para próxima tentativa
+    rethrow;
   }
   break;
+  
 
 case 'sync_pedido_existente':
   try {
@@ -3758,6 +3764,7 @@ Future<void> _syncPedidosEspecificos(List<int> ids) async {
       final pedidoData = {
         'id_pedido': idPedido,
         'reference': pedidoMap['reference'],
+        'nome_pedido': pedidoMap['nome_pedido'], // 🔥 ADICIONAR
         'id_usuario': pedidoMap['id_usuario'],
         'telefone': pedidoMap['telefone'],
         'email': pedidoMap['email'],
