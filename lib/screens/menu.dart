@@ -145,10 +145,10 @@ Future<void> _sincronizarSeNecessario() async {
 
 Future<List<Produto>> _fetchProdutos() async {
   try {
-    // 🔥 LEITURA PURA DO BANCO LOCAL (SEM SYNC)
     final produtos = await _dbService.readAllProdutosWithAssoc();
     
-    return produtos.where((p) {
+    // Aplicar filtros
+    final produtosFiltrados = produtos.where((p) {
       if (p.ativo != 1) return false;
       
       if (_buscaNome.isNotEmpty && 
@@ -168,6 +168,29 @@ Future<List<Produto>> _fetchProdutos() async {
       
       return true;
     }).toList();
+    
+    // 🔥 NOVO: Ordenar por estoque (produtos com estoque baixo primeiro)
+    produtosFiltrados.sort((a, b) {
+      final qtdA = a.quantidadeEstoque ?? 999;
+      final qtdB = b.quantidadeEstoque ?? 999;
+      
+      // Prioridade 1: Esgotados (0)
+      if (qtdA == 0 && qtdB != 0) return -1;
+      if (qtdB == 0 && qtdA != 0) return 1;
+      
+      // Prioridade 2: Críticos (< 10)
+      if (qtdA < 10 && qtdB >= 10) return -1;
+      if (qtdB < 10 && qtdA >= 10) return 1;
+      
+      // Prioridade 3: Baixos (< 20)
+      if (qtdA < 20 && qtdB >= 20) return -1;
+      if (qtdB < 20 && qtdA >= 20) return 1;
+      
+      // Dentro da mesma categoria, ordenar pela quantidade
+      return qtdA.compareTo(qtdB);
+    });
+    
+    return produtosFiltrados;
   } catch (e) {
     print('Erro ao buscar produtos: $e');
     return [];

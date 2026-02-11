@@ -2,6 +2,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../widgets/estoque_alerta_popup.dart';
 import 'dart:io';
 import '../models/pedido.dart';
 import '../models/produto_imagem.dart';
@@ -108,44 +109,57 @@ Future<void> _sincronizarPedidosSeNecessario() async {
     }
   }
 
-  Future<void> _cancelarPedido(Pedido pedido) async {
-    // 🔥 NOVO: Bloquear TODOS os botões imediatamente
-    setState(() => _cancelando = true);
+ Future<void> _cancelarPedido(Pedido pedido) async {
+  // 🔥 NOVO: Bloquear TODOS os botões imediatamente
+  setState(() => _cancelando = true);
+  
+  try {
+    await _syncService.cancelarPedido(pedido.id!, 'Cancelado pelo usuário', 1);
     
-    try {
-      await _syncService.cancelarPedido(pedido.id!, 'Cancelado pelo usuário', 1);
-      // await _syncService.forcarSincronizacaoCompleta();
+    // 🔥 CORREÇÃO: Verificar se o pedido cancelado é o ativo ANTES de limpar
+    final bool eraPedidoAtivo = _pedidoAtivoService.pedidoAtivoId == pedido.id;
+    
+    if (eraPedidoAtivo) {
+      _pedidoAtivoService.limparPedidoAtivo();
       
-      if (_pedidoAtivoService.pedidoAtivoId == pedido.id) {
-        _pedidoAtivoService.limparPedidoAtivo();
-      }
-      
+      // 🔥 CRÍTICO: Atualizar estado local para remover o banner
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Pedido cancelado! Estoque restaurado.'),
-            backgroundColor: Colors.green,
-            duration: Duration(seconds: 2),
-          ),
-        );
-        _refreshPedidos();
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Erro ao cancelar: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    } finally {
-      // 🔥 NOVO: Desbloquear após concluir (sucesso ou erro)
-      if (mounted) {
-        setState(() => _cancelando = false);
+        setState(() {
+          _pedidoAtivoId = null;
+        });
       }
     }
+    
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            eraPedidoAtivo 
+              ? 'Pedido cancelado! Estoque restaurado. Indicador de pedido ativo removido.'
+              : 'Pedido cancelado! Estoque restaurado.',
+          ),
+          backgroundColor: Colors.green,
+          duration: Duration(seconds: eraPedidoAtivo ? 3 : 2),
+        ),
+      );
+      _refreshPedidos();
+    }
+  } catch (e) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Erro ao cancelar: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  } finally {
+    // 🔥 NOVO: Desbloquear após concluir (sucesso ou erro)
+    if (mounted) {
+      setState(() => _cancelando = false);
+    }
   }
+}
 
   Future<void> _selecionarPedidoAtivo(Pedido pedido) async {
     final isAtivo = _pedidoAtivoService.pedidoAtivoId == pedido.id;
@@ -381,67 +395,205 @@ Future<void> _removerItem(Pedido pedido, ItemPedido item) async {
   }
 }
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Pedidos Por Finalizar'),
-        backgroundColor: Colors.orange,
-      ),
-      body: FutureBuilder<List<Pedido>>(
-        future: _pedidosFuture,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
+@override
+Widget build(BuildContext context) {
+  return Stack(
+    children: [
+      Scaffold(
+        appBar: AppBar(
+          title: const Text('Pedidos Por Finalizar'),
+          backgroundColor: Colors.orange,
+        ),
+        body: Column(
+          children: [
+            // 🔥 NOVO: Banner de Pedido Ativo
+            if (_pedidoAtivoId != null)
+              FutureBuilder<Pedido?>(
+                future: _syncService.readPedidoComDetalhes(_pedidoAtivoId!),
+                builder: (context, snapshot) {
+                  final nomePedido = snapshot.data?.nomePedido;
 
-          if (snapshot.hasError) {
-            return Center(child: Text('Erro: ${snapshot.error}'));
-          }
-
-          final pedidos = snapshot.data ?? [];
-
-          if (pedidos.isEmpty) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    Icons.shopping_cart_outlined,
-                    size: 100,
-                    color: Colors.grey.shade400,
-                  ),
-                  const SizedBox(height: 20),
-                  const Text(
-                    'Nenhum pedido por finalizar',
-                    style: TextStyle(fontSize: 18, color: Colors.grey),
-                  ),
-                  const SizedBox(height: 12),
-                  ElevatedButton.icon(
-                    onPressed: () => Navigator.of(context).pop(),
-                    icon: const Icon(Icons.arrow_back),
-                    label: const Text('Voltar ao Menu'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.teal,
-                      foregroundColor: Colors.white,
+                  return Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: Colors.teal.shade50,
+                      border: Border(
+                        bottom: BorderSide(color: Colors.teal.shade200, width: 2),
+                      ),
                     ),
-                  ),
-                ],
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: const BoxDecoration(
+                            color: Colors.teal,
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.shopping_bag,
+                            color: Colors.white,
+                            size: 20,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Pedido Ativo',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.teal,
+                                ),
+                              ),
+                              Text(
+                                nomePedido != null && nomePedido.isNotEmpty
+                                    ? '"$nomePedido" (#$_pedidoAtivoId) - Produtos serão adicionados aqui'
+                                    : 'Pedido #$_pedidoAtivoId - Produtos serão adicionados aqui',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: Colors.grey.shade700,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close, color: Colors.teal),
+                          tooltip: 'Novo Pedido',
+                          onPressed: _confirmarDesativarPedidoAtivo,
+                        ),
+                      ],
+                    ),
+                  );
+                },
               ),
-            );
-          }
 
-          return ListView.builder(
-            padding: const EdgeInsets.all(16),
-            itemCount: pedidos.length,
-            itemBuilder: (context, index) {
-              final pedido = pedidos[index];
-              return _buildPedidoCard(pedido);
-            },
-          );
-        },
+            // Conteúdo Original envolvido em Expanded para ocupar o resto da tela
+            Expanded(
+              child: FutureBuilder<List<Pedido>>(
+                future: _pedidosFuture,
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+
+                  if (snapshot.hasError) {
+                    return Center(child: Text('Erro: ${snapshot.error}'));
+                  }
+
+                  final pedidos = snapshot.data ?? [];
+
+                  if (pedidos.isEmpty) {
+                    return Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.shopping_cart_outlined,
+                            size: 100,
+                            color: Colors.grey.shade400,
+                          ),
+                          const SizedBox(height: 20),
+                          const Text(
+                            'Nenhum pedido por finalizar',
+                            style: TextStyle(fontSize: 18, color: Colors.grey),
+                          ),
+                          const SizedBox(height: 12),
+                          ElevatedButton.icon(
+                            onPressed: () => Navigator.of(context).pop(),
+                            icon: const Icon(Icons.arrow_back),
+                            label: const Text('Voltar ao Menu'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.teal,
+                              foregroundColor: Colors.white,
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }
+
+                  return ListView.builder(
+                    padding: const EdgeInsets.all(16),
+                    itemCount: pedidos.length,
+                    itemBuilder: (context, index) {
+                      final pedido = pedidos[index];
+                      return _buildPedidoCard(pedido);
+                    },
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
       ),
-    );
+
+      // 🔥 NOVO: Popup de alerta de estoque sobreposto
+      const EstoqueAlertaPopup(),
+    ],
+  );
+}
+
+// ADICIONAR este método na classe _PedidosPorFinalizarScreenState
+Future<void> _confirmarDesativarPedidoAtivo() async {
+  final confirmado = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: const Row(
+        children: [
+          Icon(Icons.add_shopping_cart, color: Colors.teal),
+          SizedBox(width: 12),
+          Text('Novo Pedido'),
+        ],
+      ),
+      content: Text(
+        'Deseja desativar o Pedido #$_pedidoAtivoId e iniciar um novo?\n\n'
+        'Você será redirecionado ao Menu para adicionar produtos.',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(ctx).pop(false),
+          child: const Text('Cancelar'),
+        ),
+        ElevatedButton.icon(
+          onPressed: () => Navigator.of(ctx).pop(true),
+          icon: const Icon(Icons.check),
+          label: const Text('Sim, Novo Pedido'),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.teal,
+            foregroundColor: Colors.white,
+          ),
+        ),
+      ],
+    ),
+  );
+
+  if (confirmado == true) {
+    _pedidoAtivoService.limparPedidoAtivo();
+    
+    if (mounted) {
+      // 🔥 NOVO: Redirecionar ao menu em vez de apenas mostrar SnackBar
+      Navigator.of(context).pushReplacementNamed('/menu');
+      
+      // SnackBar será exibido na tela do menu
+      Future.delayed(const Duration(milliseconds: 300), () {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Pedido desativado. Adicione produtos para criar um novo pedido.'),
+              backgroundColor: Colors.green,
+              duration: Duration(seconds: 3),
+            ),
+          );
+        }
+      });
+    }
   }
+}
 
 Widget _buildPedidoCard(Pedido pedido) {
   final totalItens = pedido.itens?.length ?? 0;
