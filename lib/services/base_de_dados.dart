@@ -10,7 +10,7 @@ import '../models/pedido.dart';
 import 'dart:async';
 import'../services/estoque_alerta_service.dart';
 // Definindo a versão do DB como 2 para ativar o onUpgrade se já existir a v1
-const int _dbVersion = 8;
+const int _dbVersion = 9;
 
 class DatabaseService {
   // Padrão Singleton
@@ -91,6 +91,16 @@ if (oldVersion < 8) { // Incrementar versão atual
       print('✅ Coluna nome_pedido adicionada com sucesso!');
     } catch (e) {
       print('⚠️ Erro ao adicionar nome_pedido: $e');
+    }
+}
+
+if (oldVersion < 9) { // Incrementar versão atual
+    print('➕ Atualizando tipo de pagamento...');
+    try {
+      await db.execute("UPDATE tipo_pagamento SET tipo_pagamento = 'Dinheiro em espécie' WHERE idtipo_pagamento = 1;");
+      print('✅ Tipo de pagamento atualizado com sucesso!');
+    } catch (e) {
+      print('⚠️ Erro ao atualizar tipo de pagamento: $e');
     }
 }
     print('✅ Migração concluída de V$oldVersion para V$newVersion.');
@@ -383,7 +393,7 @@ await db.execute('''
     // --- INSERÇÃO DE DADOS INICIAIS (SEEDING) ---
     
     // 10.1 Tipos de Pagamento
-    await db.rawInsert("INSERT OR IGNORE INTO tipo_pagamento (tipo_pagamento) VALUES (?)", ['Dinheiro vivo']);
+    await db.rawInsert("INSERT OR IGNORE INTO tipo_pagamento (tipo_pagamento) VALUES (?)", ['Dinheiro em espécie']);
     await db.rawInsert("INSERT OR IGNORE INTO tipo_pagamento (tipo_pagamento) VALUES (?)", ['VISA']);
     await db.rawInsert("INSERT OR IGNORE INTO tipo_pagamento (tipo_pagamento) VALUES (?)", ['M-Pesa']);
     await db.rawInsert("INSERT OR IGNORE INTO tipo_pagamento (tipo_pagamento) VALUES (?)", ['E-Mola']);
