@@ -10,6 +10,7 @@ import '../services/supabase_sync_service.dart';
 import '../services/sessao_service.dart';
 import '../widgets/cached_produto_image.dart';
 import 'dart:async';
+import '../services/sync_events_service.dart'; // 🔥 NOVO
 
 
 class DetalhesProdutoScreen extends StatefulWidget {
@@ -22,39 +23,79 @@ class DetalhesProdutoScreen extends StatefulWidget {
 }
 
 class _DetalhesProdutoScreenState extends State<DetalhesProdutoScreen> {
+  StreamSubscription<SyncEvent>? _syncEventsSubscription;
   final DatabaseService _dbService = DatabaseService.instance;
   final PedidoAtivoService _pedidoAtivoService = PedidoAtivoService.instance;
     final SupabaseSyncService _syncService = SupabaseSyncService.instance;
+    late Future<Produto?> _produtoFuture;
   
   Produto? _produto;
   bool _isLoading = true;
   int _quantidade = 1;
   bool _isAdicionando = false;
 
-  @override
-  void initState() {
-    super.initState();
-    _carregarProduto();
-  }
+@override
+void initState() {
+  super.initState();
+  _produtoFuture = _carregarProduto();
 
-  Future<void> _carregarProduto() async {
-    try {
-      final produto = await _dbService.readProdutoWithDetailsById(widget.produtoId);
-      if (mounted) {
-        setState(() {
-          _produto = produto;
-          _isLoading = false;
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() => _isLoading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erro ao carregar produto: $e')),
-        );
-      }
+  // 🔥 ADICIONAR ESTE BLOCO COMPLETO:
+  _syncEventsSubscription = SyncEventsService.instance.eventStream.listen((event) {
+    if (!mounted) return;
+    
+    switch (event.tipo) {
+      case SyncEventType.produtoAlterado:
+        // Se o produto que estamos visualizando foi alterado
+        if (event.idEntidade == null || event.idEntidade == widget.produtoId) {
+          print('📲 Produto ${widget.produtoId} alterado: recarregando detalhes');
+          _carregarProduto();
+        }
+        break;
+        
+      case SyncEventType.estoqueAlterado:
+        // Estoque global mudou → recarregar para atualizar quantidade
+        print('📲 Estoque alterado: recarregando produto');
+        _carregarProduto();
+        break;
+        
+      default:
+        break;
+    }
+  });
+}
+
+@override
+void dispose() {
+  _syncEventsSubscription?.cancel(); 
+  super.dispose();
+}
+
+Future<Produto?> _carregarProduto() async {
+  try {
+    final produto = await _dbService.readProdutoWithDetailsById(widget.produtoId);
+    if (mounted) {
+      setState(() {
+        _produto = produto;
+        _isLoading = false;
+        
+        // 🔥 NOVO: Resetar quantidade se estoque mudou
+        if (produto != null) {
+          final estoqueDisponivel = produto.quantidadeEstoque ?? 0;
+          if (_quantidade > estoqueDisponivel) {
+            _quantidade = estoqueDisponivel > 0 ? 1 : 0;
+          }
+        }
+      });
+    }
+  } catch (e) {
+    if (mounted) {
+      setState(() => _isLoading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Erro ao carregar produto: $e')),
+      );
     }
   }
+}
 
   void _incrementarQuantidade() {
     if (_produto == null) return;

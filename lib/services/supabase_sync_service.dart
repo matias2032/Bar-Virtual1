@@ -15,6 +15,9 @@ import 'package:sqflite/sqflite.dart';
 import 'supabase_storage_service.dart';
 import 'estoque_alerta_service.dart';
 import 'notificacao_estoque_service.dart';
+import 'sync_events_service.dart';
+import 'dart:math';
+
 
 
 
@@ -87,6 +90,7 @@ class SupabaseSyncService {
   RealtimeChannel? _produtosChannel;
   RealtimeChannel? _pedidosChannel;
   RealtimeChannel? _categoriasChannel;
+  RealtimeChannel? _movimentosChannel;
 
   // ==========================================
   // INICIALIZAÇÃO
@@ -144,16 +148,22 @@ class SupabaseSyncService {
 }
 
   Future<String> _getOrCreateDeviceId() async {
-    final prefs = await SharedPreferences.getInstance();
-    String? deviceId = prefs.getString('device_id');
+  final prefs = await SharedPreferences.getInstance();
+  String? deviceId = prefs.getString('device_id');
 
-    if (deviceId == null) {
-      deviceId = 'device_${DateTime.now().millisecondsSinceEpoch}';
-      await prefs.setString('device_id', deviceId);
-    }
-
-    return deviceId;
+  if (deviceId == null) {
+    // 🔥 SOLUÇÃO: Adicionar componente aleatório
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    final random = (timestamp * 997) % 999999; // Hash pseudo-aleatório
+    deviceId = 'device_${timestamp}_$random';
+    await prefs.setString('device_id', deviceId);
+    print('🆕 Device ID gerado: $deviceId'); // Log para debug
+  } else {
+    print('📱 Device ID carregado: $deviceId'); // Log para debug
   }
+
+  return deviceId;
+}
 
   Future<void> _loadLastSyncTime() async {
     final prefs = await SharedPreferences.getInstance();
@@ -3193,8 +3203,10 @@ void dispose() {
   _produtosChannel?.unsubscribe();
   _pedidosChannel?.unsubscribe();
   _categoriasChannel?.unsubscribe(); // 🔥 ADICIONAR
+  _movimentosChannel?.unsubscribe(); // 🔥 ADICIONAR
   _statusStreamController.close();
   _erroStreamController.close();
+  
 }
 
 
@@ -3975,7 +3987,7 @@ Future<void> _syncMovimentosEspecificos(List<int> ids) async {
 }
 
 void _setupRealtimeListeners() {
-  print('🔧 Configurando listeners Realtime com sincronização seletiva...');
+  print('🔧 Configurando listeners Realtime com broadcast de eventos...');
 
   // ==========================================
   // LISTENER PARA CATEGORIAS
@@ -3989,17 +4001,17 @@ void _setupRealtimeListeners() {
         callback: (payload) async {
           print('🔔 Mudança detectada em categorias: ${payload.eventType}');
           
-          // 🔥 IGNORAR mudanças deste dispositivo
+          // ✅ CORRETO: Verificação de device_id
           if (payload.newRecord?['device_id'] == _deviceId) {
-            print('⏭️ Ignorando mudança criada por este dispositivo');
+            print('⏭️  Ignorando mudança criada por este dispositivo');
             return;
           }
           
-          // 🔥 DELETAR: Sincronizar todas as categorias (para detectar exclusões)
+          // ✅ CORRETO: Tratamento de DELETE
           if (payload.eventType == PostgresChangeEvent.delete) {
             final idCategoria = payload.oldRecord?['id_categoria'] as int?;
             if (idCategoria != null) {
-              print('🗑️ Categoria $idCategoria deletada - removendo localmente...');
+              print('🗑️  Categoria $idCategoria deletada - removendo localmente...');
               
               final db = await _localDb.database;
               await db.delete(
@@ -4008,19 +4020,32 @@ void _setupRealtimeListeners() {
                 whereArgs: [idCategoria],
               );
               
-              print('✅ Categoria $idCategoria removida do banco local');
+              // ✅ CORRETO: Emitir evento após delete
+              SyncEventsService.instance.emitir(
+                SyncEventType.categoriaAlterada,
+                idEntidade: idCategoria,
+              );
+              
+              print('✅ Categoria $idCategoria deletada + evento emitido');
             }
             return;
           }
           
-          // 🔥 INSERT/UPDATE: Sincronizar apenas a categoria alterada
+          // ✅ CORRETO: Tratamento de INSERT/UPDATE
           final idCategoria = payload.newRecord?['id_categoria'] as int?;
           if (idCategoria != null) {
             print('🔄 Sincronizando apenas categoria $idCategoria...');
             
             try {
               await _syncCategoriasEspecificas([idCategoria]);
-              print('✅ Categoria $idCategoria sincronizada via Realtime');
+              
+              // ✅ CORRETO: Emitir evento APÓS sincronização
+              SyncEventsService.instance.emitir(
+                SyncEventType.categoriaAlterada,
+                idEntidade: idCategoria,
+              );
+              
+              print('✅ Categoria $idCategoria sincronizada + evento emitido');
             } catch (e) {
               print('❌ Erro ao sincronizar categoria $idCategoria: $e');
             }
@@ -4041,38 +4066,53 @@ void _setupRealtimeListeners() {
         callback: (payload) async {
           print('🔔 Mudança detectada em produtos: ${payload.eventType}');
           
-          // 🔥 IGNORAR mudanças deste dispositivo
+          // ✅ CORRETO: Verificação de device_id
           if (payload.newRecord?['device_id'] == _deviceId) {
-            print('⏭️ Ignorando mudança criada por este dispositivo');
+            print('⏭️  Ignorando mudança criada por este dispositivo');
             return;
           }
           
-          // 🔥 DELETAR: Remover localmente
+          // ✅ CORRETO: Tratamento de DELETE
           if (payload.eventType == PostgresChangeEvent.delete) {
             final idProduto = payload.oldRecord?['id_produto'] as int?;
             if (idProduto != null) {
-              print('🗑️ Produto $idProduto deletado - removendo localmente...');
+              print('🗑️  Produto $idProduto deletado - removendo localmente...');
               
               final db = await _localDb.database;
               await db.delete('produto', where: 'id_produto = ?', whereArgs: [idProduto]);
               await db.delete('produto_categoria', where: 'id_produto = ?', whereArgs: [idProduto]);
               await db.delete('produto_imagem', where: 'id_produto = ?', whereArgs: [idProduto]);
               
-              print('✅ Produto $idProduto removido do banco local');
-              notificarMudancaEstoque();
+              // ✅ CORRETO: Emitir eventos
+              SyncEventsService.instance.emitir(
+                SyncEventType.produtoAlterado,
+                idEntidade: idProduto,
+              );
+              SyncEventsService.instance.emitir(SyncEventType.estoqueAlterado);
+              notificarMudancaEstoque(); // Manter para compatibilidade
+              
+              print('✅ Produto $idProduto deletado + eventos emitidos');
             }
             return;
           }
           
-          // 🔥 INSERT/UPDATE: Sincronizar apenas o produto alterado
+          // ✅ CORRETO: Tratamento de INSERT/UPDATE
           final idProduto = payload.newRecord?['id_produto'] as int?;
           if (idProduto != null) {
             print('🔄 Sincronizando apenas produto $idProduto...');
             
             try {
               await _syncProdutosEspecificos([idProduto]);
-              print('✅ Produto $idProduto sincronizado via Realtime');
-              notificarMudancaEstoque();
+              
+              // ✅ CORRETO: Emitir eventos APÓS sincronização
+              SyncEventsService.instance.emitir(
+                SyncEventType.produtoAlterado,
+                idEntidade: idProduto,
+              );
+              SyncEventsService.instance.emitir(SyncEventType.estoqueAlterado);
+              notificarMudancaEstoque(); // Manter para compatibilidade
+              
+              print('✅ Produto $idProduto sincronizado + eventos emitidos');
             } catch (e) {
               print('❌ Erro ao sincronizar produto $idProduto: $e');
             }
@@ -4093,35 +4133,48 @@ void _setupRealtimeListeners() {
         callback: (payload) async {
           print('🔔 Mudança detectada em pedidos: ${payload.eventType}');
           
-          // 🔥 IGNORAR mudanças deste dispositivo
+          // ✅ CORRETO: Verificação de device_id
           if (payload.newRecord?['device_id'] == _deviceId) {
-            print('⏭️ Ignorando mudança criada por este dispositivo');
+            print('⏭️  Ignorando mudança criada por este dispositivo');
             return;
           }
           
-          // 🔥 DELETAR: Remover localmente
+          // ✅ CORRETO: Tratamento de DELETE
           if (payload.eventType == PostgresChangeEvent.delete) {
             final idPedido = payload.oldRecord?['id_pedido'] as int?;
             if (idPedido != null) {
-              print('🗑️ Pedido $idPedido deletado - removendo localmente...');
+              print('🗑️  Pedido $idPedido deletado - removendo localmente...');
               
               final db = await _localDb.database;
               await db.delete('item_pedido', where: 'id_pedido = ?', whereArgs: [idPedido]);
               await db.delete('pedido', where: 'id_pedido = ?', whereArgs: [idPedido]);
               
-              print('✅ Pedido $idPedido removido do banco local');
+              // ✅ CORRETO: Emitir evento
+              SyncEventsService.instance.emitir(
+                SyncEventType.pedidoAlterado,
+                idEntidade: idPedido,
+              );
+              
+              print('✅ Pedido $idPedido deletado + evento emitido');
             }
             return;
           }
           
-          // 🔥 INSERT/UPDATE: Sincronizar apenas o pedido alterado
+          // ✅ CORRETO: Tratamento de INSERT/UPDATE
           final idPedido = payload.newRecord?['id_pedido'] as int?;
           if (idPedido != null) {
             print('🔄 Sincronizando apenas pedido $idPedido...');
             
             try {
               await _syncPedidosEspecificos([idPedido]);
-              print('✅ Pedido $idPedido sincronizado via Realtime');
+              
+              // ✅ CORRETO: Emitir evento APÓS sincronização
+              SyncEventsService.instance.emitir(
+                SyncEventType.pedidoAlterado,
+                idEntidade: idPedido,
+              );
+              
+              print('✅ Pedido $idPedido sincronizado + evento emitido');
             } catch (e) {
               print('❌ Erro ao sincronizar pedido $idPedido: $e');
             }
@@ -4131,44 +4184,87 @@ void _setupRealtimeListeners() {
       .subscribe();
 
   // ==========================================
-  // LISTENER PARA MOVIMENTOS DE ESTOQUE
+  // 🔥 LISTENER PARA MOVIMENTOS DE ESTOQUE (CORRIGIDO)
   // ==========================================
-  _supabase
+  _movimentosChannel = _supabase  // 🔥 CRIAR VARIÁVEL _movimentosChannel
       .channel('movimentos_estoque_changes')
       .onPostgresChanges(
         event: PostgresChangeEvent.all,
         schema: 'public',
         table: 'movimento_estoque',
         callback: (payload) async {
-          print('🔔 Mudança detectada em movimentos de estoque: ${payload.eventType}');
+          print('🔔 Mudança detectada em movimentos: ${payload.eventType}');
           
-          // 🔥 IGNORAR mudanças deste dispositivo
+          // ✅ CORRETO: Verificação de device_id
           if (payload.newRecord?['device_id'] == _deviceId) {
-            print('⏭️ Ignorando mudança criada por este dispositivo');
+            print('⏭️  Ignorando mudança criada por este dispositivo');
             return;
           }
           
+          // 🔥 CORREÇÃO: Adicionar tratamento de DELETE
+          if (payload.eventType == PostgresChangeEvent.delete) {
+            final idMovimento = payload.oldRecord?['id_movimento'] as int?;
+            final idProduto = payload.oldRecord?['id_produto'] as int?;
+            
+            if (idMovimento != null) {
+              print('🗑️  Movimento $idMovimento deletado');
+              
+              final db = await _localDb.database;
+              await db.delete(
+                'movimento_estoque',
+                where: 'id_movimento = ?',
+                whereArgs: [idMovimento],
+              );
+              
+              // Atualizar estoque do produto se soubermos qual é
+              if (idProduto != null) {
+                await _syncProdutosEspecificos([idProduto]);
+                SyncEventsService.instance.emitir(
+                  SyncEventType.estoqueAlterado,
+                  idEntidade: idProduto,
+                );
+              } else {
+                SyncEventsService.instance.emitir(SyncEventType.estoqueAlterado);
+              }
+              
+              notificarMudancaEstoque();
+              print('✅ Movimento deletado + estoque atualizado');
+            }
+            return;
+          }
+          
+          // ✅ CORRETO: Tratamento de INSERT/UPDATE
           final idMovimento = payload.newRecord?['id_movimento'] as int?;
           final idProduto = payload.newRecord?['id_produto'] as int?;
-          
+
           if (idMovimento != null && idProduto != null) {
-            print('🔄 Sincronizando movimento $idMovimento e produto $idProduto...');
+            print('🔄 Sincronizando movimento $idMovimento (produto $idProduto)...');
             
             try {
               await _syncMovimentosEspecificos([idMovimento]);
               await _syncProdutosEspecificos([idProduto]);
               
-              print('✅ Movimento e estoque sincronizados via Realtime');
+              // ✅ CORRETO: Emitir eventos
+              SyncEventsService.instance.emitir(
+                SyncEventType.movimentoAlterado,  // 🔥 ADICIONAR este tipo
+                idEntidade: idMovimento,
+              );
+              SyncEventsService.instance.emitir(
+                SyncEventType.estoqueAlterado,
+                idEntidade: idProduto,
+              );
               notificarMudancaEstoque();
+              
+              print('✅ Movimento $idMovimento sincronizado + eventos emitidos');
             } catch (e) {
-              print('❌ Erro ao sincronizar movimento: $e');
+              print('❌ Erro ao sincronizar movimento $idMovimento: $e');
             }
           }
         },
       )
       .subscribe();
 
-  print('✅ Listeners Realtime configurados com sincronização seletiva!');
+  print('✅ Todos os listeners Realtime configurados com sistema de eventos!');
 }
 
 Future<void> forcarSincronizacaoCompleta() async {

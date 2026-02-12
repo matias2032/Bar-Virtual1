@@ -7,6 +7,8 @@ import '../services/base_de_dados.dart';
 import '../widgets/estoque_alerta_popup.dart';
 import '../widgets/conectividade_indicator.dart';
 import '../services/sessao_service.dart';
+import '../services/sync_events_service.dart'; // 🔥 NOVO
+import 'dart:async'; // 🔥 SE JÁ NÃO EXISTIR
 
 
 class DashboardVendasScreen extends StatefulWidget {
@@ -19,6 +21,7 @@ class DashboardVendasScreen extends StatefulWidget {
 enum PeriodoFiltro { hoje, semana, mes, tresMeses, seisMeses, ano }
 
 class _DashboardVendasScreenState extends State<DashboardVendasScreen> {
+   StreamSubscription<SyncEvent>? _syncEventsSubscription;
 
   PeriodoFiltro _filtroAtual = PeriodoFiltro.semana;
   bool _isLoading = true;
@@ -38,6 +41,26 @@ void initState() {
   super.initState();
   _perfilUsuario = SessaoService.instance.usuarioAtual?.idPerfil;
   _carregarDados();
+  Timer? _reloadTimer;
+
+_syncEventsSubscription = SyncEventsService.instance.eventStream.listen((event) {
+  if (!mounted) return;
+  
+  // 🔥 DEBOUNCE: Aguardar 2 segundos antes de recarregar
+  _reloadTimer?.cancel();
+  _reloadTimer = Timer(const Duration(seconds: 2), () {
+    if (mounted) {
+      _carregarDados();
+    }
+  });
+});
+
+@override
+void dispose() {
+  _reloadTimer?.cancel(); // 🔥 NÃO ESQUECER
+  _syncEventsSubscription?.cancel();
+  super.dispose();
+}
 }
 
 Future<void> _carregarDados() async {

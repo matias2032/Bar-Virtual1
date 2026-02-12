@@ -11,6 +11,9 @@ import '../services/pedido_ativo_service.dart';
 import '../services/pedido_contador_service.dart';
 import '../services/supabase_sync_service.dart';
 import '../services/sessao_service.dart';
+import 'dart:async';
+import '../services/sync_events_service.dart'; // 🔥 NOVO
+
 
 class PedidosPorFinalizarScreen extends StatefulWidget {
   const PedidosPorFinalizarScreen({super.key});
@@ -20,6 +23,7 @@ class PedidosPorFinalizarScreen extends StatefulWidget {
 }
 
 class _PedidosPorFinalizarScreenState extends State<PedidosPorFinalizarScreen> {
+  StreamSubscription<SyncEvent>? _syncEventsSubscription;
   final DatabaseService _dbService = DatabaseService.instance;
   final PedidoAtivoService _pedidoAtivoService = PedidoAtivoService.instance;
   final PedidoContadorService _contadorService = PedidoContadorService.instance;
@@ -40,6 +44,31 @@ class _PedidosPorFinalizarScreenState extends State<PedidosPorFinalizarScreen> {
   _sincronizarPedidosSeNecessario();
 
     _pedidosFuture = _carregarPedidos();
+
+     _syncEventsSubscription = SyncEventsService.instance.eventStream.listen((event) {
+    if (!mounted) return;
+    
+    // 🔥 ESCOLHER QUAIS EVENTOS SÃO RELEVANTES PARA ESTA TELA
+      switch (event.tipo) {
+            
+      case SyncEventType.produtoAlterado:
+        print('📲 Pedido alterado: recarregando dados');
+        setState(() {
+          _pedidosFuture = _carregarPedidos(); // 🔥 SUBSTITUIR pelo método correto
+        });
+      
+         break;
+    default:
+      break;
+        
+      }
+  });
+  }
+
+   @override
+  void dispose() {
+    _syncEventsSubscription?.cancel(); // 🔥 NOVO
+    super.dispose();
   }
 
   // ADICIONAR MÉTODO NOVO:

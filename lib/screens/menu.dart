@@ -2,7 +2,6 @@
 // lib/screens/menu.dart (COM CONTADOR SINCRONIZADO)
 
 import 'package:flutter/material.dart';
-import 'dart:async';
 import '../models/produto.dart';
 import '../models/categoria.dart';
 import '../services/base_de_dados.dart';
@@ -18,6 +17,8 @@ import '../widgets/estoque_alerta_popup.dart';
 import '../widgets/cached_produto_image.dart';
 import '../widgets/conectividade_indicator.dart';
 import '../services/conectividade_service.dart';
+import 'dart:async';
+import '../services/sync_events_service.dart'; // 🔥 NOVO
 
 
 
@@ -29,10 +30,12 @@ class MenuScreen extends StatefulWidget {
 }
 
 class _MenuScreenState extends State<MenuScreen> with SingleTickerProviderStateMixin {
+  StreamSubscription<SyncEvent>? _syncEventsSubscription; // 🔥 NOVO
   final DatabaseService _dbService = DatabaseService.instance;
   final PedidoAtivoService _pedidoAtivoService = PedidoAtivoService.instance;
   final PedidoContadorService _contadorService = PedidoContadorService.instance; // 🔥 NOVO
   final _syncService = SupabaseSyncService.instance;
+
   
   late Future<List<Produto>> _produtosFuture;
   late AnimationController _animationController;
@@ -89,8 +92,44 @@ class _MenuScreenState extends State<MenuScreen> with SingleTickerProviderStateM
         });
       }
     });
-  }
 
+ _syncEventsSubscription = SyncEventsService.instance.eventStream.listen(
+    (event) {
+      if (!mounted) return;
+      
+      switch (event.tipo) {
+        case SyncEventType.produtoAlterado:
+        case SyncEventType.categoriaAlterada:
+        case SyncEventType.estoqueAlterado:
+          print('📲 Recarregando produtos devido a ${event.tipo}');
+          setState(() {
+            _produtosFuture = _fetchProdutos();
+          });
+          break;
+          
+        case SyncEventType.pedidoAlterado:
+          print('📲 Atualizando contador de pedidos');
+          _atualizarContadorPedidos();
+          break;
+          
+        case SyncEventType.syncCompleta:
+          print('📲 Sincronização completa - recarregando tudo');
+          _fetchCategorias();
+          setState(() {
+            _produtosFuture = _fetchProdutos();
+          });
+          _atualizarContadorPedidos();
+          break;
+          
+        default:
+          break;
+      }
+    },
+    onError: (error) {
+      print('Erro no listener: $error');
+    },
+  );
+}
   @override
   void dispose() {
     _animationController.dispose();
@@ -99,6 +138,7 @@ class _MenuScreenState extends State<MenuScreen> with SingleTickerProviderStateM
     _precoMaxController.dispose();
     _estoqueSubscription?.cancel();
     _contadorSubscription?.cancel(); // 🔥 NOVO
+    _syncEventsSubscription?.cancel(); // 🔥 NOVO
     super.dispose();
   }
   // ADICIONAR MÉTODO NOVO:
